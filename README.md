@@ -1,9 +1,9 @@
 # Pillr - AI-Powered Medication Reminder App
 
-![Pillr_main](https://github.com/user-attachments/assets/597a6e7a-296b-4b4c-bd8e-62974f45d4df)
-![pillr_main_2](https://github.com/user-attachments/assets/3078987e-9a48-4bf1-b9e2-9dbdafdd5b74)
-![pillr_main_3](https://github.com/user-attachments/assets/1be9ac34-5a8a-40a8-9ad3-057409f8e84b)
-![pillr_main_4](https://github.com/user-attachments/assets/8e178adf-79d9-476d-80fd-b08612549d45)
+![Pillr_main](https://github.com/user-attachments/assets/597a6e7a-296b-4b4c-bd8e-62974f45d4df) ![pillr_main_2](https://github.com/user-attachments/assets/3078987e-9a48-4bf1-b9e2-9dbdafdd5b74)
+
+![pillr_main_3](https://github.com/user-attachments/assets/1be9ac34-5a8a-40a8-9ad3-057409f8e84b) ![pillr_main_4](https://github.com/user-attachments/assets/8e178adf-79d9-476d-80fd-b08612549d45)
+
 
 ## 🚨 **IMPORTANT: Setup Required Before Using AI Scanner**
 
