@@ -1,50 +1,87 @@
-# Welcome to your Expo app 👋
+# Pillr - AI-Powered Medication Reminder App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+## 🚨 **IMPORTANT: Setup Required Before Using AI Scanner**
 
-## Get started
+### 1. Gemini API Key Setup (Required for AI Scanner)
+1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Create a new API key
+3. Create a `.env` file in your project root:
+```env
+EXPO_PUBLIC_GEMINI_API_KEY=your_actual_api_key_here
+```
+4. Restart your development server
 
-1. Install dependencies
+**Without this API key, the AI scanner will not work!**
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-    npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+**Example .env file content:**
+```env
+# Pillr Environment Configuration
+EXPO_PUBLIC_GEMINI_API_KEY=AIzaSyC_1234567890abcdefghijklmnopqrstuvwxyz
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### 2. Install Dependencies
+```bash
+npm install
+```
 
-## Learn more
+### 3. Start the App
+```bash
+npx expo start
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+## 🔧 **Current Issues Being Fixed:**
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+- ✅ PIN-based authentication
+- ✅ Dark glassmorphism UI
+- ✅ Multilingual support (5 languages)
+- ✅ Daily medication progress spinner
+- ✅ Medication tracking system
+- 🔄 AI medication scanner (needs API key)
+- 🔄 Notification system
 
-## Join the community
+## 📱 **Features Working:**
 
-Join our community of developers creating universal apps.
+- **Authentication**: PIN setup and verification
+- **UI**: Pure black and white glassmorphism theme
+- **Navigation**: All screens accessible
+- **Language**: 5 languages (EN, ES, FR, DE, HI)
+- **Animations**: GSAP-like entrance animations
+- **Progress Tracking**: Visual spinner showing daily medication completion
+- **Medication Management**: Add, track, and manage doses
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## 🚧 **Features Being Implemented:**
+
+- **AI Scanner**: Analyze medication images (when API key is set)
+- **Notifications**: Reminder system for medications
+
+## 📋 **How to Use:**
+
+1. **Set PIN**: First time setup creates your security PIN
+2. **Add Medications**: Manual entry or AI scanning
+3. **Track Progress**: See daily medication completion with visual spinner
+4. **Language**: Tap 🌐 icon to change language
+5. **AI Scanner**: Take photo of medication for automatic details
+6. **Dose Tracking**: Mark doses as taken to update progress
+
+## 🆘 **Troubleshooting:**
+
+- **AI Scanner Not Working**: Check Gemini API key in `.env`
+- **App Crashes**: Clear cache with `npx expo start --clear`
+- **Permissions**: Allow camera and photo library access
+- **Language Issues**: Restart app after language change
+- **Progress Not Showing**: Check if medications are loaded
+
+## 🔮 **Coming Soon:**
+
+- Enhanced notification system
+- Offline medication database
+- Advanced medication scheduling
+- Drug interaction checking
+
+## 📊 **Daily Progress Spinner Features:**
+
+- **Visual Progress**: Circular progress ring showing completion
+- **Dose Counting**: Tracks taken vs. total doses
+- **Real-time Updates**: Progress updates as you mark doses
+- **Animated**: Smooth animations for better UX
+- **Persistent**: Saves progress to device storage

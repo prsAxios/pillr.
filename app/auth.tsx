@@ -1,212 +1,214 @@
-import { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Dimensions,
-  Image,
-} from "react-native";
+import { useState, useEffect, useRef } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, TextInput, Alert, Animated } from "react-native";
 import { useRouter } from "expo-router";
-import * as LocalAuthentication from "expo-local-authentication";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import Colors from "../constants/Colors";
 
 const { width } = Dimensions.get("window");
+const PIN_KEY = "@pillr_pin";
 
 export default function AuthScreen() {
   const router = useRouter();
-  const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [hasBiometrics, setHasBiometrics] = useState(false);
+  const [isFirstTime, setIsFirstTime] = useState(false);
+  const [pin, setPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [isSettingUpPin, setIsSettingUpPin] = useState(false);
+  const [enteredPin, setEnteredPin] = useState("");
+  const [isVerifyingPin, setIsVerifyingPin] = useState(false);
+
+  // Animation refs
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const scaleAnim = useRef(new Animated.Value(0.9)).current;
 
   useEffect(() => {
-    checkBiometrics();
+    checkSetup();
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 800, useNativeDriver: true }),
+      Animated.spring(scaleAnim, { toValue: 1, tension: 50, friction: 8, useNativeDriver: true }),
+    ]).start();
   }, []);
 
-  const checkBiometrics = async () => {
-    const hasHardware = await LocalAuthentication.hasHardwareAsync();
-    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-    setHasBiometrics(hasHardware && isEnrolled);
-  };
-
-  const authenticate = async () => {
+  const checkSetup = async () => {
     try {
-      setIsAuthenticating(true);
-      setError(null);
-
-      // Check if device has biometric hardware
-      const hasHardware = await LocalAuthentication.hasHardwareAsync();
-      const supportedTypes =
-        await LocalAuthentication.supportedAuthenticationTypesAsync();
-      const hasBiometrics = await LocalAuthentication.isEnrolledAsync();
-
-      const auth = await LocalAuthentication.authenticateAsync({
-        promptMessage:
-          hasHardware && hasBiometrics
-            ? "Use Face ID or Touch ID"
-            : "Enter your PIN to access MedRemind",
-        fallbackLabel: "Use PIN",
-        cancelLabel: "Cancel",
-        disableDeviceFallback: false,
-      });
-
-      if (auth.success) {
-        router.replace("/home");
-      } else {
-        setError("Authentication failed. Please try again.");
-      }
-    } catch (err) {
-      setError("An error occurred. Please try again.");
-      console.error(err);
-    } finally {
-      setIsAuthenticating(false);
+      const storedPin = await AsyncStorage.getItem(PIN_KEY);
+      setIsFirstTime(!storedPin);
+    } catch (error) {
+      console.log("Setup check error:", error);
+      setIsFirstTime(true);
     }
   };
 
+  const setupPin = async () => {
+    if (pin.length < 4) {
+      setError("PIN must be at least 4 digits");
+      return;
+    }
+    
+    if (pin !== confirmPin) {
+      setError("PINs don't match");
+      return;
+    }
+
+    try {
+      setIsSettingUpPin(true);
+      await AsyncStorage.setItem(PIN_KEY, pin);
+      router.replace("/home");
+    } catch (err) {
+      setError("Failed to save PIN. Please try again.");
+      console.error(err);
+    } finally {
+      setIsSettingUpPin(false);
+    }
+  };
+
+  const verifyPin = async () => {
+    if (enteredPin.length < 4) {
+      setError("Please enter your PIN");
+      return;
+    }
+
+    try {
+      setIsVerifyingPin(true);
+      const storedPin = await AsyncStorage.getItem(PIN_KEY);
+
+      if (storedPin === enteredPin) {
+        router.replace("/home");
+      } else {
+        setError("Incorrect PIN. Please try again.");
+      }
+    } catch (err) {
+      setError("An error occurred during verification. Please try again.");
+      console.error(err);
+    } finally {
+      setIsVerifyingPin(false);
+    }
+  };
+
+  const setError = (message: string) => {
+    Alert.alert("Error", message);
+  };
+
+  if (isFirstTime) {
+    return (
+      <View style={styles.container}>
+        <LinearGradient colors={[Colors.glassmorphism.background, Colors.glassmorphism.surface]} style={styles.gradient} />
+        <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY: slideAnim }, { scale: scaleAnim }] }]}>
+          <View style={styles.logoContainer}>
+            <View style={styles.logoBackground}>
+              <Ionicons name="medkit-outline" size={80} color={Colors.glassmorphism.primary} />
+            </View>
+          </View>
+          <Text style={styles.title}>Pillr</Text>
+          <Text style={styles.subtitle}>Your AI-Powered Medication Companion</Text>
+          <View style={styles.card}>
+            <Text style={styles.welcomeText}>Welcome to Pillr!</Text>
+            <Text style={styles.instructionText}>Set up a PIN to secure your medications</Text>
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Enter PIN (4-6 digits)</Text>
+              <TextInput 
+                style={styles.input} 
+                value={pin} 
+                onChangeText={setPin} 
+                placeholder="Enter PIN" 
+                placeholderTextColor={Colors.glassmorphism.textSecondary} 
+                keyboardType="numeric" 
+                secureTextEntry 
+                maxLength={6} 
+              />
+            </View>
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Confirm PIN</Text>
+              <TextInput 
+                style={styles.input} 
+                value={confirmPin} 
+                onChangeText={setConfirmPin} 
+                placeholder="Confirm PIN" 
+                placeholderTextColor={Colors.glassmorphism.textSecondary} 
+                keyboardType="numeric" 
+                secureTextEntry 
+                maxLength={6} 
+              />
+            </View>
+            <TouchableOpacity 
+              style={[styles.button, isSettingUpPin && styles.buttonDisabled]} 
+              onPress={setupPin} 
+              disabled={isSettingUpPin}
+            >
+              <LinearGradient colors={[Colors.glassmorphism.primary, Colors.glassmorphism.primary]} style={styles.buttonGradient}>
+                <Ionicons name="keypad-outline" size={24} color={Colors.glassmorphism.background} style={styles.buttonIcon} />
+                <Text style={styles.buttonText}>{isSettingUpPin ? "Setting up..." : "Set Up PIN"}</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      </View>
+    );
+  }
+
   return (
-    <LinearGradient colors={["#4CAF50", "#2E7D32"]} style={styles.container}>
-      <View style={styles.content}>
-        <View style={styles.iconContainer}>
-          <Ionicons name="medical" size={80} color="white" />
+    <View style={styles.container}>
+      <LinearGradient colors={[Colors.glassmorphism.background, Colors.glassmorphism.surface]} style={styles.gradient} />
+      <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY: slideAnim }, { scale: scaleAnim }] }]}>
+        <View style={styles.logoContainer}>
+          <View style={styles.logoBackground}>
+            <Ionicons name="medkit-outline" size={80} color={Colors.glassmorphism.primary} />
+          </View>
         </View>
-
-        <Text style={styles.title}>MedRemind</Text>
-        <Text style={styles.subtitle}>Your Personal Medication Assistant</Text>
-
+        <Text style={styles.title}>Pillr</Text>
+        <Text style={styles.subtitle}>Your AI-Powered Medication Companion</Text>
         <View style={styles.card}>
           <Text style={styles.welcomeText}>Welcome Back!</Text>
-          <Text style={styles.instructionText}>
-            {hasBiometrics
-              ? "Use Face ID/Touch ID or PIN to access your medications"
-              : "Enter your PIN to access your medications"}
-          </Text>
-
-          <TouchableOpacity
-            style={[styles.button, isAuthenticating && styles.buttonDisabled]}
-            onPress={authenticate}
-            disabled={isAuthenticating}
-          >
-            <Ionicons
-              name={hasBiometrics ? "finger-print-outline" : "keypad-outline"}
-              size={24}
-              color="white"
-              style={styles.buttonIcon}
+          <Text style={styles.instructionText}>Enter your PIN to access your medications</Text>
+          <View style={styles.inputContainer}>
+            <Text style={styles.inputLabel}>Enter PIN</Text>
+            <TextInput 
+              style={styles.input} 
+              value={enteredPin} 
+              onChangeText={setEnteredPin} 
+              placeholder="Enter PIN" 
+              placeholderTextColor={Colors.glassmorphism.textSecondary} 
+              keyboardType="numeric" 
+              secureTextEntry 
+              maxLength={6} 
             />
-            <Text style={styles.buttonText}>
-              {isAuthenticating
-                ? "Verifying..."
-                : hasBiometrics
-                ? "Authenticate"
-                : "Enter PIN"}
-            </Text>
+          </View>
+          <TouchableOpacity 
+            style={[styles.button, isVerifyingPin && styles.buttonDisabled]} 
+            onPress={verifyPin} 
+            disabled={isVerifyingPin}
+          >
+            <LinearGradient colors={[Colors.glassmorphism.primary, Colors.glassmorphism.primary]} style={styles.buttonGradient}>
+              <Ionicons name="keypad-outline" size={24} color={Colors.glassmorphism.background} style={styles.buttonIcon} />
+              <Text style={styles.buttonText}>{isVerifyingPin ? "Verifying..." : "Verify PIN"}</Text>
+            </LinearGradient>
           </TouchableOpacity>
-
-          {error && (
-            <View style={styles.errorContainer}>
-              <Ionicons name="alert-circle" size={20} color="#f44336" />
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          )}
         </View>
-      </View>
-    </LinearGradient>
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-    padding: 20,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  iconContainer: {
-    width: 120,
-    height: 120,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    borderRadius: 60,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 36,
-    fontWeight: "bold",
-    color: "white",
-    marginBottom: 10,
-    textShadowColor: "rgba(0, 0, 0, 0.2)",
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 3,
-  },
-  subtitle: {
-    fontSize: 18,
-    color: "rgba(255, 255, 255, 0.9)",
-    marginBottom: 40,
-    textAlign: "center",
-  },
-  card: {
-    backgroundColor: "white",
-    borderRadius: 20,
-    padding: 30,
-    width: width - 40,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  welcomeText: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 10,
-  },
-  instructionText: {
-    fontSize: 16,
-    color: "#666",
-    textAlign: "center",
-    marginBottom: 30,
-  },
-  button: {
-    backgroundColor: "#4CAF50",
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    borderRadius: 12,
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  buttonDisabled: {
-    opacity: 0.7,
-  },
-  buttonIcon: {
-    marginRight: 10,
-  },
-  buttonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  errorContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 20,
-    padding: 10,
-    backgroundColor: "#ffebee",
-    borderRadius: 8,
-  },
-  errorText: {
-    color: "#f44336",
-    marginLeft: 8,
-    fontSize: 14,
-  },
+  container: { flex: 1 },
+  gradient: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, },
+  content: { flex: 1, padding: 20, justifyContent: "center", alignItems: "center", },
+  logoContainer: { width: 120, height: 120, backgroundColor: Colors.glassmorphism.glass, borderRadius: 60, justifyContent: "center", alignItems: "center", marginBottom: 30, borderWidth: 1, borderColor: Colors.glassmorphism.glassBorder, shadowColor: Colors.glassmorphism.shadow, shadowOffset: { width: 0, height: 20 }, shadowOpacity: 0.4, shadowRadius: 40, elevation: 20, },
+  logoBackground: { width: 100, height: 100, backgroundColor: Colors.glassmorphism.highlight, borderRadius: 50, justifyContent: "center", alignItems: "center", },
+  title: { fontSize: 42, fontWeight: "bold", color: Colors.glassmorphism.text, marginBottom: 10, letterSpacing: 2, textShadowColor: Colors.glassmorphism.primary, textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 15, },
+  subtitle: { fontSize: 16, color: Colors.glassmorphism.textSecondary, textAlign: "center", marginBottom: 40, paddingHorizontal: 20, letterSpacing: 0.5, },
+  card: { width: "100%", maxWidth: 400, backgroundColor: Colors.glassmorphism.card, borderRadius: 25, padding: 30, alignItems: "center", borderWidth: 1, borderColor: Colors.glassmorphism.cardBorder, shadowColor: Colors.glassmorphism.shadow, shadowOffset: { width: 0, height: 15 }, shadowOpacity: 0.4, shadowRadius: 25, elevation: 20, },
+  welcomeText: { fontSize: 24, fontWeight: "bold", color: Colors.glassmorphism.text, marginBottom: 15, letterSpacing: 0.5, },
+  instructionText: { fontSize: 15, color: Colors.glassmorphism.textSecondary, textAlign: "center", marginBottom: 30, lineHeight: 22, },
+  inputContainer: { width: "100%", marginBottom: 20, },
+  inputLabel: { fontSize: 14, color: Colors.glassmorphism.textSecondary, marginBottom: 8, fontWeight: "500", letterSpacing: 0.3, },
+  input: { width: "100%", height: 55, backgroundColor: Colors.glassmorphism.glass, borderRadius: 15, paddingHorizontal: 20, fontSize: 18, color: Colors.glassmorphism.text, borderWidth: 1, borderColor: Colors.glassmorphism.glassBorder, shadowColor: Colors.glassmorphism.shadow, shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 5, },
+  button: { width: "100%", borderRadius: 18, overflow: "hidden", marginBottom: 15, shadowColor: Colors.glassmorphism.shadow, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 10, },
+  buttonDisabled: { opacity: 0.6 },
+  buttonGradient: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 18, },
+  buttonIcon: { marginRight: 10 },
+  buttonText: { color: Colors.glassmorphism.background, fontSize: 18, fontWeight: "600", letterSpacing: 0.8, },
 });

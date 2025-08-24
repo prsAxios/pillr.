@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Platform,
   KeyboardAvoidingView,
   Alert,
+  Animated,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,6 +23,7 @@ import {
   scheduleMedicationReminder,
   scheduleRefillReminder,
 } from "../../utils/notifications";
+import Colors from "../../constants/Colors";
 
 const { width } = Dimensions.get("window");
 
@@ -84,95 +86,101 @@ export default function AddMedicationScreen() {
   const [selectedDuration, setSelectedDuration] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const validateForm = () => {
+  // Animation refs
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const scaleAnim = useRef(new Animated.Value(0.9)).current;
+  const formAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // Start entrance animations
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 50,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+      Animated.timing(formAnim, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  const handleSubmit = async () => {
+    // Validate form
     const newErrors: { [key: string]: string } = {};
+    if (!form.name.trim()) newErrors.name = 'Medication name is required';
+    if (!form.dosage.trim()) newErrors.dosage = 'Dosage is required';
+    if (!selectedFrequency) newErrors.frequency = 'Please select a frequency';
+    if (!selectedDuration) newErrors.duration = 'Please select a duration';
 
-    if (!form.name.trim()) {
-      newErrors.name = "Medication name is required";
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
     }
 
-    if (!form.dosage.trim()) {
-      newErrors.dosage = "Dosage is required";
-    }
-
-    if (!form.frequency) {
-      newErrors.frequency = "Frequency is required";
-    }
-
-    if (!form.duration) {
-      newErrors.duration = "Duration is required";
-    }
-
-    if (form.refillReminder) {
-      if (!form.currentSupply) {
-        newErrors.currentSupply =
-          "Current supply is required for refill tracking";
-      }
-      if (!form.refillAt) {
-        newErrors.refillAt = "Refill alert threshold is required";
-      }
-      if (Number(form.refillAt) >= Number(form.currentSupply)) {
-        newErrors.refillAt = "Refill alert must be less than current supply";
-      }
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSave = async () => {
     try {
-      if (!validateForm()) {
-        Alert.alert("Error", "Please fill in all required fields correctly");
-        return;
-      }
-
-      if (isSubmitting) return;
       setIsSubmitting(true);
 
-      // Generate a random color
-      const colors = ["#4CAF50", "#2196F3", "#FF9800", "#E91E63", "#9C27B0"];
-      const randomColor = colors[Math.floor(Math.random() * colors.length)];
+      // Generate a unique ID for the medication
+      const id = Date.now().toString();
 
-      const medicationData = {
-        id: Math.random().toString(36).substr(2, 9),
-        ...form,
-        currentSupply: form.currentSupply ? Number(form.currentSupply) : 0,
-        totalSupply: form.currentSupply ? Number(form.currentSupply) : 0,
-        refillAt: form.refillAt ? Number(form.refillAt) : 0,
+      // Create the medication object
+      const medication = {
+        id,
+        name: form.name.trim(),
+        dosage: form.dosage.trim(),
+        times: form.times,
         startDate: form.startDate.toISOString(),
-        color: randomColor,
+        duration: selectedDuration,
+        color: Colors.glassmorphism.primary, // You can make this customizable
+        reminderEnabled: form.reminderEnabled,
+        currentSupply: form.currentSupply ? parseInt(form.currentSupply) : 0,
+        totalSupply: form.currentSupply ? parseInt(form.currentSupply) : 0, // Start with current supply as total
+        refillAt: form.refillAt ? parseInt(form.refillAt) : 0,
+        refillReminder: form.refillReminder,
+        notes: form.notes.trim(),
       };
 
-      await addMedication(medicationData);
+      // Save to AsyncStorage
+      await addMedication(medication);
 
-      // Schedule reminders if enabled
-      if (medicationData.reminderEnabled) {
-        await scheduleMedicationReminder(medicationData);
-      }
-      if (medicationData.refillReminder) {
-        await scheduleRefillReminder(medicationData);
+      // Schedule notifications if enabled
+      if (form.reminderEnabled) {
+        for (const time of form.times) {
+          // Create a new medication object with the specific time for this reminder
+          const reminderMedication = {
+            ...medication,
+            times: [time]  // Override times with just this specific time
+          };
+          await scheduleMedicationReminder(reminderMedication);
+        }
       }
 
-      Alert.alert(
-        "Success",
-        "Medication added successfully",
-        [
-          {
-            text: "OK",
-            onPress: () => router.back(),
-          },
-        ],
-        { cancelable: false }
-      );
+      // Schedule refill reminder if enabled
+      if (form.refillReminder && form.refillAt) {
+        await scheduleRefillReminder(medication);
+      }
+
+      // Navigate back to home
+      router.back();
+
     } catch (error) {
-      console.error("Save error:", error);
-      Alert.alert(
-        "Error",
-        "Failed to save medication. Please try again.",
-        [{ text: "OK" }],
-        { cancelable: false }
-      );
+      console.error('Error saving medication:', error);
+      Alert.alert('Error', 'Failed to save medication. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -280,27 +288,47 @@ export default function AddMedicationScreen() {
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={["#1a8e2d", "#146922"]}
+        colors={[Colors.glassmorphism.background, Colors.glassmorphism.surface]}
         style={styles.headerGradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
       />
 
-      <View style={styles.content}>
+      <Animated.View
+        style={[
+          styles.content,
+          {
+            opacity: fadeAnim,
+            transform: [
+              { translateY: slideAnim },
+              { scale: scaleAnim }
+            ]
+          }
+        ]}
+      >
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
             style={styles.backButton}
           >
-            <Ionicons name="chevron-back" size={28} color="#1a8e2d" />
+            <Ionicons name="chevron-back" size={28} color={Colors.glassmorphism.primary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>New Medication</Text>
         </View>
 
-        <ScrollView
-          style={styles.formContainer}
+        <Animated.ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.formContentContainer}
+          style={[
+            styles.formContainer,
+            {
+              opacity: formAnim,
+              transform: [{
+                translateY: formAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [30, 0]
+                })
+              }]
+            }
+          ]}
         >
           {/* Basic Information */}
           <View style={styles.section}>
@@ -552,22 +580,33 @@ export default function AddMedicationScreen() {
               />
             </View>
           </View>
-        </ScrollView>
+        </Animated.ScrollView>
 
-        <View style={styles.footer}>
+        <Animated.View
+          style={[
+            styles.footer,
+            {
+              opacity: formAnim,
+              transform: [{
+                translateY: formAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [20, 0]
+                })
+              }]
+            }
+          ]}
+        >
           <TouchableOpacity
             style={[
               styles.saveButton,
               isSubmitting && styles.saveButtonDisabled,
             ]}
-            onPress={handleSave}
+            onPress={handleSubmit}
             disabled={isSubmitting}
           >
             <LinearGradient
-              colors={["#1a8e2d", "#146922"]}
+              colors={[Colors.glassmorphism.primary, Colors.glassmorphism.primary]}
               style={styles.saveButtonGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
             >
               <Text style={styles.saveButtonText}>
                 {isSubmitting ? "Adding..." : "Add Medication"}
@@ -581,8 +620,8 @@ export default function AddMedicationScreen() {
           >
             <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
-        </View>
-      </View>
+        </Animated.View>
+      </Animated.View>
     </View>
   );
 }
@@ -590,7 +629,7 @@ export default function AddMedicationScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: Colors.glassmorphism.background,
   },
   headerGradient: {
     position: "absolute",
@@ -611,23 +650,26 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "white",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.glassmorphism.glass,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   headerTitle: {
     fontSize: 28,
-    fontWeight: "700",
-    color: "white",
+    fontWeight: "600",
+    color: Colors.glassmorphism.primary,
     marginLeft: 15,
+    letterSpacing: 0.5,
   },
   formContainer: {
     flex: 1,
@@ -640,15 +682,20 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: "700",
-    color: "#1a1a1a",
+    fontWeight: "600",
+    color: Colors.glassmorphism.text,
     marginBottom: 15,
     marginTop: 10,
+    letterSpacing: 0.5,
   },
   mainInput: {
     fontSize: 20,
-    color: "#333",
+    color: Colors.glassmorphism.text,
     padding: 15,
+    backgroundColor: Colors.glassmorphism.glass,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
   },
   optionsGrid: {
     flexDirection: "row",
@@ -657,105 +704,109 @@ const styles = StyleSheet.create({
   },
   optionCard: {
     width: (width - 60) / 2,
-    backgroundColor: "white",
-    borderRadius: 16,
+    backgroundColor: Colors.glassmorphism.card,
+    borderRadius: 20,
     padding: 15,
     margin: 5,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#e0e0e0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: Colors.glassmorphism.cardBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   selectedOptionCard: {
-    backgroundColor: "#1a8e2d",
-    borderColor: "#1a8e2d",
+    backgroundColor: Colors.glassmorphism.primary,
+    borderColor: Colors.glassmorphism.primary,
   },
   optionIcon: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: "#f5f5f5",
+    backgroundColor: Colors.glassmorphism.glass,
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 10,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
   },
   selectedOptionIcon: {
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    backgroundColor: Colors.glassmorphism.highlight,
   },
   optionLabel: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#333",
+    color: Colors.glassmorphism.text,
     textAlign: "center",
   },
   selectedOptionLabel: {
-    color: "white",
+    color: Colors.glassmorphism.background,
   },
   durationNumber: {
     fontSize: 24,
     fontWeight: "700",
-    color: "#1a8e2d",
+    color: Colors.glassmorphism.primary,
     marginBottom: 5,
   },
   selectedDurationNumber: {
-    color: "white",
+    color: Colors.glassmorphism.background,
   },
   inputContainer: {
-    backgroundColor: "white",
-    borderRadius: 16,
+    backgroundColor: Colors.glassmorphism.card,
+    borderRadius: 20,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: Colors.glassmorphism.cardBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   dateButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "white",
-    borderRadius: 16,
+    backgroundColor: Colors.glassmorphism.card,
+    borderRadius: 20,
     padding: 15,
     marginTop: 15,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: Colors.glassmorphism.cardBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   dateIconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#f5f5f5",
+    backgroundColor: Colors.glassmorphism.glass,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 10,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
   },
   dateButtonText: {
     flex: 1,
     fontSize: 16,
-    color: "#333",
+    color: Colors.glassmorphism.text,
   },
   card: {
-    backgroundColor: "white",
-    borderRadius: 16,
+    backgroundColor: Colors.glassmorphism.card,
+    borderRadius: 20,
     padding: 20,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: Colors.glassmorphism.cardBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   switchRow: {
     flexDirection: "row",
@@ -771,19 +822,21 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#f5f5f5",
+    backgroundColor: Colors.glassmorphism.glass,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 15,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
   },
   switchLabel: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#333",
+    color: Colors.glassmorphism.text,
   },
   switchSubLabel: {
     fontSize: 13,
-    color: "#666",
+    color: Colors.glassmorphism.textSecondary,
     marginTop: 2,
   },
   inputRow: {
@@ -797,65 +850,75 @@ const styles = StyleSheet.create({
   input: {
     padding: 15,
     fontSize: 16,
-    color: "#333",
-  },
-  textAreaContainer: {
-    backgroundColor: "white",
+    color: Colors.glassmorphism.text,
+    backgroundColor: Colors.glassmorphism.glass,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: Colors.glassmorphism.glassBorder,
+  },
+  textAreaContainer: {
+    backgroundColor: Colors.glassmorphism.card,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.cardBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   textArea: {
     height: 100,
     padding: 15,
     fontSize: 16,
-    color: "#333",
+    color: Colors.glassmorphism.text,
   },
   footer: {
     padding: 20,
-    backgroundColor: "white",
+    backgroundColor: Colors.glassmorphism.surface,
     borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
+    borderTopColor: Colors.glassmorphism.divider,
   },
   saveButton: {
-    borderRadius: 16,
+    borderRadius: 20,
     overflow: "hidden",
     marginBottom: 12,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   saveButtonGradient: {
-    paddingVertical: 15,
+    paddingVertical: 16,
     justifyContent: "center",
     alignItems: "center",
   },
   saveButtonText: {
-    color: "white",
+    color: Colors.glassmorphism.background,
     fontSize: 16,
-    fontWeight: "700",
+    fontWeight: "600",
+    letterSpacing: 0.5,
   },
   cancelButton: {
-    paddingVertical: 15,
-    borderRadius: 16,
+    paddingVertical: 16,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
+    borderColor: Colors.glassmorphism.glassBorder,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "white",
+    backgroundColor: Colors.glassmorphism.glass,
   },
   cancelButtonText: {
-    color: "#666",
+    color: Colors.glassmorphism.textSecondary,
     fontSize: 16,
     fontWeight: "600",
   },
   inputError: {
-    borderColor: "#FF5252",
+    borderColor: Colors.glassmorphism.error,
   },
   errorText: {
-    color: "#FF5252",
+    color: Colors.glassmorphism.error,
     fontSize: 12,
     marginTop: 4,
     marginLeft: 12,
@@ -872,36 +935,38 @@ const styles = StyleSheet.create({
   timesTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#333",
+    color: Colors.glassmorphism.text,
     marginBottom: 10,
   },
   timeButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "white",
-    borderRadius: 16,
+    backgroundColor: Colors.glassmorphism.card,
+    borderRadius: 20,
     padding: 15,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: Colors.glassmorphism.cardBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   timeIconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#f5f5f5",
+    backgroundColor: Colors.glassmorphism.glass,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 10,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
   },
   timeButtonText: {
     flex: 1,
     fontSize: 16,
-    color: "#333",
+    color: Colors.glassmorphism.text,
   },
 });

@@ -1,724 +1,757 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
+  ScrollView,
   Dimensions,
   Animated,
   Modal,
   Alert,
-  AppState,
 } from "react-native";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { Link, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
-import Svg, { Circle } from "react-native-svg";
-import {
-  getMedications,
-  Medication,
-  getTodaysDoses,
-  recordDose,
-  DoseHistory,
-} from "../utils/storage";
-import { useFocusEffect } from "@react-navigation/native";
-import {
-  registerForPushNotificationsAsync,
-  scheduleMedicationReminder,
-} from "../utils/notifications";
+import { useTranslation } from "react-i18next";
+import Colors from "../constants/Colors";
+import LanguageSelector from "../components/LanguageSelector";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const { width } = Dimensions.get("window");
+const { width, height } = Dimensions.get("window");
 
-// Create animated circle component
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-
-const QUICK_ACTIONS = [
-  {
-    icon: "add-circle-outline" as const,
-    label: "Add\nMedication",
-    route: "/medications/add" as const,
-    color: "#2E7D32",
-    gradient: ["#4CAF50", "#2E7D32"] as [string, string],
-  },
-  {
-    icon: "calendar-outline" as const,
-    label: "Calendar\nView",
-    route: "/calendar" as const,
-    color: "#1976D2",
-    gradient: ["#2196F3", "#1976D2"] as [string, string],
-  },
-  {
-    icon: "time-outline" as const,
-    label: "History\nLog",
-    route: "/history" as const,
-    color: "#C2185B",
-    gradient: ["#E91E63", "#C2185B"] as [string, string],
-  },
-  {
-    icon: "medical-outline" as const,
-    label: "Refill\nTracker",
-    route: "/refills" as const,
-    color: "#E64A19",
-    gradient: ["#FF5722", "#E64A19"] as [string, string],
-  },
-];
-
-interface CircularProgressProps {
-  progress: number;
+interface Medication {
+  id: number;
+  name: string;
+  time: string;
+  taken: boolean;
+  dosage: string;
   totalDoses: number;
-  completedDoses: number;
-}
-
-function CircularProgress({
-  progress,
-  totalDoses,
-  completedDoses,
-}: CircularProgressProps) {
-  const animatedValue = useRef(new Animated.Value(0)).current;
-  const size = width * 0.55;
-  const strokeWidth = 15;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-
-  useEffect(() => {
-    Animated.timing(animatedValue, {
-      toValue: progress,
-      duration: 1500,
-      useNativeDriver: true,
-    }).start();
-  }, [progress]);
-
-  const strokeDashoffset = animatedValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: [circumference, 0],
-  });
-
-  return (
-    <View style={styles.progressContainer}>
-      <View style={styles.progressTextContainer}>
-        <Text style={styles.progressPercentage}>
-          {Math.round(progress * 100)}%
-        </Text>
-        <Text style={styles.progressDetails}>
-          {completedDoses} of {totalDoses} doses
-        </Text>
-      </View>
-      <Svg width={size} height={size} style={styles.progressRing}>
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke="rgba(255, 255, 255, 0.2)"
-          strokeWidth={strokeWidth}
-          fill="none"
-        />
-        <AnimatedCircle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke="white"
-          strokeWidth={strokeWidth}
-          fill="none"
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
-          strokeLinecap="round"
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        />
-      </Svg>
-    </View>
-  );
+  takenDoses: number;
 }
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
+  
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showLanguageSelector, setShowLanguageSelector] = useState(false);
   const [medications, setMedications] = useState<Medication[]>([]);
-  const [todaysMedications, setTodaysMedications] = useState<Medication[]>([]);
-  const [completedDoses, setCompletedDoses] = useState(0);
-  const [doseHistory, setDoseHistory] = useState<DoseHistory[]>([]);
+  const [todaysProgress, setTodaysProgress] = useState({ total: 0, taken: 0 });
 
-  const loadMedications = useCallback(async () => {
-    try {
-      const [allMedications, todaysDoses] = await Promise.all([
-        getMedications(),
-        getTodaysDoses(),
-      ]);
+  // Animation refs
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const scaleAnim = useRef(new Animated.Value(0.9)).current;
+  const quickActionsAnim = useRef(new Animated.Value(0)).current;
+  const progressAnim = useRef(new Animated.Value(0)).current;
 
-      setDoseHistory(todaysDoses);
-      setMedications(allMedications);
-
-      // Filter medications for today
-      const today = new Date();
-      const todayMeds = allMedications.filter((med) => {
-        const startDate = new Date(med.startDate);
-        const durationDays = parseInt(med.duration.split(" ")[0]);
-
-        // For ongoing medications or if within duration
-        if (
-          durationDays === -1 ||
-          (today >= startDate &&
-            today <=
-              new Date(
-                startDate.getTime() + durationDays * 24 * 60 * 60 * 1000
-              ))
-        ) {
-          return true;
-        }
-        return false;
-      });
-
-      setTodaysMedications(todayMeds);
-
-      // Calculate completed doses
-      const completed = todaysDoses.filter((dose) => dose.taken).length;
-      setCompletedDoses(completed);
-    } catch (error) {
-      console.error("Error loading medications:", error);
-    }
-  }, []);
-
-  const setupNotifications = async () => {
-    try {
-      const token = await registerForPushNotificationsAsync();
-      if (!token) {
-        console.log("Failed to get push notification token");
-        return;
-      }
-
-      // Schedule reminders for all medications
-      const medications = await getMedications();
-      for (const medication of medications) {
-        if (medication.reminderEnabled) {
-          await scheduleMedicationReminder(medication);
-        }
-      }
-    } catch (error) {
-      console.error("Error setting up notifications:", error);
-    }
-  };
-
-  // Use useEffect for initial load
   useEffect(() => {
+    // Start entrance animations
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 800, useNativeDriver: true }),
+      Animated.spring(scaleAnim, { toValue: 1, tension: 50, friction: 8, useNativeDriver: true }),
+    ]).start();
+
+    // Staggered animation for quick actions
+    setTimeout(() => {
+      Animated.timing(quickActionsAnim, { toValue: 1, duration: 600, useNativeDriver: true }).start();
+    }, 300);
+
+    // Load medications and calculate progress
     loadMedications();
-    setupNotifications();
-
-    // Handle app state changes for notifications
-    const subscription = AppState.addEventListener("change", (nextAppState) => {
-      if (nextAppState === "active") {
-        loadMedications();
-      }
-    });
-
-    return () => {
-      subscription.remove();
-    };
   }, []);
 
-  // Use useFocusEffect for subsequent updates
-  useFocusEffect(
-    useCallback(() => {
-      const unsubscribe = () => {
-        // Cleanup if needed
-      };
-
-      loadMedications();
-      return () => unsubscribe();
-    }, [loadMedications])
-  );
-
-  const handleTakeDose = async (medication: Medication) => {
+  const loadMedications = async () => {
     try {
-      await recordDose(medication.id, true, new Date().toISOString());
-      await loadMedications(); // Reload data after recording dose
+      const storedMedications = await AsyncStorage.getItem('medications');
+      if (storedMedications) {
+        const parsedMedications = JSON.parse(storedMedications);
+        setMedications(parsedMedications);
+        
+        // Calculate today's progress
+        const today = new Date().toDateString();
+        const todaysMeds = parsedMedications.filter((med: Medication) => {
+          // For demo purposes, show all medications as today's
+          return true;
+        });
+        
+        const total = todaysMeds.reduce((sum: number, med: Medication) => sum + med.totalDoses, 0);
+        const taken = todaysMeds.reduce((sum: number, med: Medication) => sum + med.takenDoses, 0);
+        
+        setTodaysProgress({ total, taken });
+        
+        // Animate progress
+        Animated.timing(progressAnim, { 
+          toValue: total > 0 ? taken / total : 0, 
+          duration: 1000, 
+          useNativeDriver: false 
+        }).start();
+      } else {
+        // Load demo data if no stored medications
+        loadDemoData();
+      }
     } catch (error) {
-      console.error("Error recording dose:", error);
-      Alert.alert("Error", "Failed to record dose. Please try again.");
+      console.error('Error loading medications:', error);
+      loadDemoData();
     }
   };
 
-  const isDoseTaken = (medicationId: string) => {
-    return doseHistory.some(
-      (dose) => dose.medicationId === medicationId && dose.taken
+  const loadDemoData = () => {
+    const demoMedications: Medication[] = [
+      { id: 1, name: 'Aspirin', time: '9:00 AM', taken: false, dosage: '100mg', totalDoses: 2, takenDoses: 1 },
+      { id: 2, name: 'Vitamin D', time: '12:00 PM', taken: true, dosage: '1000 IU', totalDoses: 1, takenDoses: 1 },
+      { id: 3, name: 'Omega-3', time: '6:00 PM', taken: false, dosage: '1000mg', totalDoses: 1, takenDoses: 0 },
+      { id: 4, name: 'Calcium', time: '8:00 PM', taken: false, dosage: '500mg', totalDoses: 1, takenDoses: 0 },
+    ];
+    
+    setMedications(demoMedications);
+    const total = demoMedications.reduce((sum, med) => sum + med.totalDoses, 0);
+    const taken = demoMedications.reduce((sum, med) => sum + med.takenDoses, 0);
+    setTodaysProgress({ total, taken });
+    
+    // Animate progress
+    Animated.timing(progressAnim, { 
+      toValue: total > 0 ? taken / total : 0, 
+      duration: 1000, 
+      useNativeDriver: false 
+    }).start();
+  };
+
+  const handleTakeDose = async (medicationId: number) => {
+    try {
+      const updatedMedications = medications.map(med => {
+        if (med.id === medicationId && med.takenDoses < med.totalDoses) {
+          return { ...med, takenDoses: med.takenDoses + 1 };
+        }
+        return med;
+      });
+      
+      setMedications(updatedMedications);
+      await AsyncStorage.setItem('medications', JSON.stringify(updatedMedications));
+      
+      // Update progress
+      const total = updatedMedications.reduce((sum, med) => sum + med.totalDoses, 0);
+      const taken = updatedMedications.reduce((sum, med) => sum + med.takenDoses, 0);
+      setTodaysProgress({ total, taken });
+      
+      // Animate progress
+      Animated.timing(progressAnim, { 
+        toValue: total > 0 ? taken / total : 0, 
+        duration: 500, 
+        useNativeDriver: false 
+      }).start();
+      
+      Alert.alert('Success', 'Dose marked as taken!');
+    } catch (error) {
+      console.error('Error updating medication:', error);
+      Alert.alert('Error', 'Failed to update medication. Please try again.');
+    }
+  };
+
+  const QUICK_ACTIONS = [
+    {
+      id: 'scan',
+      title: t('scanMedication'),
+      icon: 'camera-outline',
+      action: () => router.push('/medications/scan'),
+      color: Colors.glassmorphism.primary,
+      description: 'AI-powered medication scanning'
+    },
+    {
+      id: 'add',
+      title: t('addMedication'),
+      icon: 'add-circle-outline',
+      action: () => router.push('/medications/add'),
+      color: Colors.glassmorphism.primary,
+      description: 'Manual medication entry'
+    },
+    {
+      id: 'dose',
+      title: t('takeDose'),
+      icon: 'checkmark-circle-outline',
+      action: () => handleTakeDose(1), // Demo action
+      color: Colors.glassmorphism.success,
+      description: 'Mark dose as taken'
+    },
+    {
+      id: 'calendar',
+      title: t('viewCalendar'),
+      icon: 'calendar-outline',
+      action: () => router.push('/calendar'),
+      color: Colors.glassmorphism.primary,
+      description: 'View medication schedule'
+    },
+  ];
+
+  const renderQuickAction = (action: any, index: number) => {
+    return (
+      <Animated.View
+        key={action.id}
+        style={[
+          styles.quickActionCard,
+          {
+            opacity: quickActionsAnim,
+            transform: [
+              {
+                translateY: quickActionsAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [50, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={action.action}
+          activeOpacity={0.8}
+        >
+          <LinearGradient
+            colors={[action.color, action.color]}
+            style={styles.quickActionGradient}
+          >
+            <View style={styles.quickActionIcon}>
+              <Ionicons name={action.icon} size={32} color={Colors.glassmorphism.background} />
+            </View>
+            <Text style={styles.quickActionTitle}>{action.title}</Text>
+            <Text style={styles.quickActionDescription}>{action.description}</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      </Animated.View>
     );
   };
 
-  const progress =
-    todaysMedications.length > 0
-      ? completedDoses / (todaysMedications.length * 2)
-      : 0;
+  const renderProgressSpinner = () => {
+    if (todaysProgress.total === 0) return null;
 
-  return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <LinearGradient colors={["#1a8e2d", "#146922"]} style={styles.header}>
-        <View style={styles.headerContent}>
-          <View style={styles.headerTop}>
-            <View style={styles.flex1}>
-              <Text style={styles.greeting}>Daily Progress</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.notificationButton}
-              onPress={() => setShowNotifications(true)}
-            >
-              <Ionicons name="notifications-outline" size={24} color="white" />
-              {todaysMedications.length > 0 && (
-                <View style={styles.notificationBadge}>
-                  <Text style={styles.notificationCount}>
-                    {todaysMedications.length}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          </View>
-          <CircularProgress
-            progress={progress}
-            totalDoses={todaysMedications.length * 2}
-            completedDoses={completedDoses}
-          />
+    const progress = todaysProgress.total > 0 ? todaysProgress.taken / todaysProgress.total : 0;
+    const remaining = todaysProgress.total - todaysProgress.taken;
+
+    return (
+      <Animated.View style={[styles.progressContainer, { opacity: fadeAnim }]}>
+        <View style={styles.progressHeader}>
+          <Text style={styles.progressTitle}>Today's Progress</Text>
+          <Text style={styles.progressSubtitle}>
+            {todaysProgress.taken} of {todaysProgress.total} doses taken
+          </Text>
         </View>
-      </LinearGradient>
-
-      <View style={styles.content}>
-        <View style={styles.quickActionsContainer}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.quickActionsGrid}>
-            {QUICK_ACTIONS.map((action) => (
-              <Link href={action.route} key={action.label} asChild>
-                <TouchableOpacity style={styles.actionButton}>
-                  <LinearGradient
-                    colors={action.gradient}
-                    style={styles.actionGradient}
-                  >
-                    <View style={styles.actionContent}>
-                      <View style={styles.actionIcon}>
-                        <Ionicons name={action.icon} size={28} color="white" />
-                      </View>
-                      <Text style={styles.actionLabel}>{action.label}</Text>
-                    </View>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </Link>
-            ))}
+        
+        <View style={styles.progressCircle}>
+          <View style={styles.progressRing}>
+            <Animated.View 
+              style={[
+                styles.progressFill,
+                { 
+                  transform: [{ 
+                    rotate: progressAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ['0deg', '360deg']
+                    })
+                  }]
+                }
+              ]} 
+            />
+          </View>
+          <View style={styles.progressCenter}>
+            <Text style={styles.progressPercentage}>
+              {Math.round(progress * 100)}%
+            </Text>
+            <Text style={styles.progressRemaining}>
+              {remaining} remaining
+            </Text>
           </View>
         </View>
+      </Animated.View>
+    );
+  };
 
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Today's Schedule</Text>
-            <Link href="/calendar" asChild>
-              <TouchableOpacity>
-                <Text style={styles.seeAllButton}>See All</Text>
-              </TouchableOpacity>
-            </Link>
-          </View>
-          {todaysMedications.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="medical-outline" size={48} color="#ccc" />
-              <Text style={styles.emptyStateText}>
-                No medications scheduled for today
-              </Text>
-              <Link href="/medications/add" asChild>
-                <TouchableOpacity style={styles.addMedicationButton}>
-                  <Text style={styles.addMedicationButtonText}>
-                    Add Medication
-                  </Text>
-                </TouchableOpacity>
-              </Link>
+  const renderTodayMedications = () => {
+    if (medications.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <Ionicons name="medical-outline" size={48} color={Colors.glassmorphism.textSecondary} />
+          <Text style={styles.emptyStateText}>{t('noMedications')}</Text>
+        </View>
+      );
+    }
+
+    return medications.map((medication, index) => (
+      <Animated.View
+        key={medication.id}
+        style={[
+          styles.medicationCard,
+          {
+            opacity: quickActionsAnim,
+            transform: [
+              {
+                translateY: quickActionsAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [30, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <View style={styles.medicationInfo}>
+          <Text style={styles.medicationName}>{medication.name}</Text>
+          <Text style={styles.medicationDetails}>
+            {medication.dosage} • {medication.time}
+          </Text>
+          <Text style={styles.medicationProgress}>
+            {medication.takenDoses}/{medication.totalDoses} doses taken
+          </Text>
+        </View>
+        <View style={styles.medicationStatus}>
+          {medication.takenDoses >= medication.totalDoses ? (
+            <View style={styles.completedBadge}>
+              <Ionicons name="checkmark-circle" size={16} color={Colors.glassmorphism.background} />
+              <Text style={styles.completedText}>Complete</Text>
             </View>
           ) : (
-            todaysMedications.map((medication) => {
-              const taken = isDoseTaken(medication.id);
-              return (
-                <View key={medication.id} style={styles.doseCard}>
-                  <View
-                    style={[
-                      styles.doseBadge,
-                      { backgroundColor: `${medication.color}15` },
-                    ]}
-                  >
-                    <Ionicons
-                      name="medical"
-                      size={24}
-                      color={medication.color}
-                    />
-                  </View>
-                  <View style={styles.doseInfo}>
-                    <View>
-                      <Text style={styles.medicineName}>{medication.name}</Text>
-                      <Text style={styles.dosageInfo}>{medication.dosage}</Text>
-                    </View>
-                    <View style={styles.doseTime}>
-                      <Ionicons name="time-outline" size={16} color="#666" />
-                      <Text style={styles.timeText}>{medication.times[0]}</Text>
-                    </View>
-                  </View>
-                  {taken ? (
-                    <View style={[styles.takenBadge]}>
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={20}
-                        color="#4CAF50"
-                      />
-                      <Text style={styles.takenText}>Taken</Text>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={[
-                        styles.takeDoseButton,
-                        { backgroundColor: medication.color },
-                      ]}
-                      onPress={() => handleTakeDose(medication)}
-                    >
-                      <Text style={styles.takeDoseText}>Take</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              );
-            })
+            <TouchableOpacity 
+              style={styles.takeDoseButton}
+              onPress={() => handleTakeDose(medication.id)}
+            >
+              <Text style={styles.takeDoseText}>Take</Text>
+            </TouchableOpacity>
           )}
         </View>
-      </View>
+      </Animated.View>
+    ));
+  };
 
+  return (
+    <View style={styles.container}>
+      <LinearGradient
+        colors={[Colors.glassmorphism.background, Colors.glassmorphism.surface]}
+        style={styles.gradient}
+      />
+
+      {/* Header */}
+      <Animated.View style={[styles.header, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+        <View style={styles.headerLeft}>
+          <Text style={styles.greeting}>Hello!</Text>
+          <Text style={styles.subtitle}>Welcome to Pillr</Text>
+        </View>
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={() => setShowNotifications(true)}
+          >
+            <Ionicons name="notifications-outline" size={24} color={Colors.glassmorphism.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={() => setShowLanguageSelector(true)}
+          >
+            <Ionicons name="language-outline" size={24} color={Colors.glassmorphism.primary} />
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <Animated.View style={[styles.mainContent, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
+          
+          {/* Progress Spinner */}
+          {renderProgressSpinner()}
+          
+          {/* Quick Actions */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Quick Actions</Text>
+            <View style={styles.quickActionsGrid}>
+              {QUICK_ACTIONS.map((action, index) => renderQuickAction(action, index))}
+            </View>
+          </View>
+
+          {/* Today's Medications */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>{t('todayMedications')}</Text>
+            <View style={styles.medicationsList}>
+              {renderTodayMedications()}
+            </View>
+          </View>
+
+        </Animated.View>
+      </ScrollView>
+
+      {/* Notifications Modal */}
       <Modal
         visible={showNotifications}
-        animationType="slide"
-        transparent={true}
+        transparent
+        animationType="fade"
         onRequestClose={() => setShowNotifications(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Notifications</Text>
-              <TouchableOpacity
-                onPress={() => setShowNotifications(false)}
-                style={styles.closeButton}
-              >
-                <Ionicons name="close" size={24} color="#333" />
-              </TouchableOpacity>
-            </View>
-            {todaysMedications.map((medication) => (
-              <View key={medication.id} style={styles.notificationItem}>
-                <View style={styles.notificationIcon}>
-                  <Ionicons name="medical" size={24} color={medication.color} />
-                </View>
-                <View style={styles.notificationContent}>
-                  <Text style={styles.notificationTitle}>
-                    {medication.name}
-                  </Text>
-                  <Text style={styles.notificationMessage}>
-                    {medication.dosage}
-                  </Text>
-                  <Text style={styles.notificationTime}>
-                    {medication.times[0]}
-                  </Text>
-                </View>
+          <View style={styles.notificationsModal}>
+            <LinearGradient
+              colors={[Colors.glassmorphism.card, Colors.glassmorphism.surface]}
+              style={styles.modalGradient}
+            >
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>{t('notifications')}</Text>
+                <TouchableOpacity
+                  style={styles.closeButton}
+                  onPress={() => setShowNotifications(false)}
+                >
+                  <Ionicons name="close" size={24} color={Colors.glassmorphism.textSecondary} />
+                </TouchableOpacity>
               </View>
-            ))}
+              
+              <ScrollView style={styles.notificationsList} showsVerticalScrollIndicator={false}>
+                <View style={styles.notificationItem}>
+                  <Ionicons name="information-circle" size={20} color={Colors.glassmorphism.primary} />
+                  <Text style={styles.notificationText}>
+                    Welcome to Pillr! Your AI-powered medication companion.
+                  </Text>
+                </View>
+                <View style={styles.notificationItem}>
+                  <Ionicons name="camera" size={20} color={Colors.glassmorphism.success} />
+                  <Text style={styles.notificationText}>
+                    Try our new AI medication scanner for quick setup!
+                  </Text>
+                </View>
+                <View style={styles.notificationItem}>
+                  <Ionicons name="checkmark-circle" size={20} color={Colors.glassmorphism.success} />
+                  <Text style={styles.notificationText}>
+                    Track your daily progress with our visual progress spinner.
+                  </Text>
+                </View>
+              </ScrollView>
+            </LinearGradient>
           </View>
         </View>
       </Modal>
-    </ScrollView>
+
+      {/* Language Selector */}
+      <LanguageSelector
+        visible={showLanguageSelector}
+        onClose={() => setShowLanguageSelector(false)}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f8f9fa",
-  },
+  container: { flex: 1 },
+  gradient: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+
+  // Header
   header: {
-    paddingTop: 50,
-    paddingBottom: 25,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-  },
-  headerContent: {
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
   },
-  headerTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    width: "100%",
-    marginBottom: 20,
-  },
+  headerLeft: { flex: 1 },
   greeting: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "white",
-    opacity: 0.9,
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: Colors.glassmorphism.text,
+    marginBottom: 4,
   },
-  content: {
-    flex: 1,
-    paddingTop: 20,
-  },
-  quickActionsContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 25,
-  },
-  quickActionsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    marginTop: 15,
-  },
-  actionButton: {
-    width: (width - 52) / 2,
-    height: 110,
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-  actionGradient: {
-    flex: 1,
-    padding: 15,
-  },
-  actionContent: {
-    flex: 1,
-    justifyContent: "space-between",
-  },
-  actionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  actionLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "white",
-    marginTop: 8,
-  },
-  section: {
-    paddingHorizontal: 20,
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 15,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#1a1a1a",
-    marginBottom: 5,
-  },
-  seeAllButton: {
-    color: "#2E7D32",
-    fontWeight: "600",
-  },
-  doseCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "white",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  doseBadge: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 15,
-  },
-  doseInfo: {
-    flex: 1,
-    justifyContent: "space-between",
-  },
-  medicineName: {
+  subtitle: {
     fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 4,
+    color: Colors.glassmorphism.textSecondary,
   },
-  dosageInfo: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 4,
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  doseTime: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  timeText: {
-    marginLeft: 5,
-    color: "#666",
-    fontSize: 14,
-  },
-  takeDoseButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 15,
-    borderRadius: 15,
-    marginLeft: 10,
-  },
-  takeDoseText: {
-    color: "white",
-    fontWeight: "600",
-    fontSize: 14,
-  },
-  progressContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    marginVertical: 10,
-  },
-  progressTextContainer: {
-    position: "absolute",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 1,
-  },
-  progressPercentage: {
-    fontSize: 36,
-    fontWeight: "bold",
-    color: "white",
-  },
-  progressLabel: {
-    fontSize: 14,
-    color: "rgba(255, 255, 255, 0.9)",
-    marginTop: 4,
-  },
-  progressRing: {
-    transform: [{ rotate: "-90deg" }],
-  },
-  flex1: {
-    flex: 1,
-  },
-  notificationButton: {
-    position: "relative",
-    padding: 8,
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
-    borderRadius: 12,
-    marginLeft: 8,
-  },
-  notificationBadge: {
-    position: "absolute",
-    top: -4,
-    right: -4,
-    backgroundColor: "#FF5252",
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 2,
-    borderColor: "#146922",
-    paddingHorizontal: 4,
-  },
-  notificationCount: {
-    color: "white",
-    fontSize: 11,
-    fontWeight: "bold",
-  },
-  progressDetails: {
-    fontSize: 14,
-    color: "rgba(255, 255, 255, 0.8)",
-    marginTop: 4,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "flex-end",
-  },
-  modalContent: {
-    backgroundColor: "white",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    maxHeight: "80%",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  closeButton: {
-    padding: 5,
-  },
-  notificationItem: {
-    flexDirection: "row",
-    padding: 15,
-    borderRadius: 12,
-    backgroundColor: "#f5f5f5",
-    marginBottom: 10,
-  },
-  notificationIcon: {
+  headerButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#E8F5E9",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 15,
+    backgroundColor: Colors.glassmorphism.glass,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
   },
-  notificationContent: {
-    flex: 1,
+
+  // Content
+  content: { flex: 1, paddingHorizontal: 20 },
+  mainContent: { paddingVertical: 20 },
+
+  // Sections
+  section: { marginBottom: 30 },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: Colors.glassmorphism.text,
+    marginBottom: 20,
+    letterSpacing: 0.5,
   },
-  notificationTitle: {
+
+  // Quick Actions
+  quickActionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  quickActionCard: {
+    width: (width - 60) / 2,
+    marginBottom: 16,
+  },
+  quickActionButton: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  quickActionGradient: {
+    padding: 20,
+    alignItems: 'center',
+    minHeight: 120,
+  },
+  quickActionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.glassmorphism.background + '20',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  quickActionTitle: {
     fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
+    fontWeight: '600',
+    color: Colors.glassmorphism.background,
+    textAlign: 'center',
     marginBottom: 4,
   },
-  notificationMessage: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 4,
-  },
-  notificationTime: {
+  quickActionDescription: {
     fontSize: 12,
-    color: "#999",
+    color: Colors.glassmorphism.background + 'CC',
+    textAlign: 'center',
+    lineHeight: 16,
   },
-  emptyState: {
-    alignItems: "center",
-    padding: 30,
-    backgroundColor: "white",
+
+  // Medications List
+  medicationsList: { gap: 12 },
+  medicationCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.glassmorphism.card,
     borderRadius: 16,
-    marginTop: 10,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.cardBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  medicationInfo: { flex: 1 },
+  medicationName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.glassmorphism.text,
+    marginBottom: 4,
+  },
+  medicationDetails: {
+    fontSize: 14,
+    color: Colors.glassmorphism.textSecondary,
+    marginBottom: 2,
+  },
+  medicationProgress: {
+    fontSize: 12,
+    color: Colors.glassmorphism.textSecondary,
+  },
+  medicationStatus: { alignItems: 'center' },
+  takenBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.glassmorphism.success,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  takenText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.glassmorphism.background,
+    marginLeft: 4,
+  },
+  takeDoseButton: {
+    backgroundColor: Colors.glassmorphism.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  takeDoseText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.glassmorphism.background,
+  },
+  completedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.glassmorphism.success,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  completedText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.glassmorphism.background,
+    marginLeft: 4,
+  },
+
+  // Empty State
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 40,
   },
   emptyStateText: {
     fontSize: 16,
-    color: "#666",
-    marginTop: 10,
+    color: Colors.glassmorphism.textSecondary,
+    marginTop: 12,
+    textAlign: 'center',
+  },
+
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  notificationsModal: {
+    width: width - 40,
+    maxHeight: height * 0.7,
+    borderRadius: 25,
+    overflow: 'hidden',
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.5,
+    shadowRadius: 30,
+    elevation: 25,
+  },
+  modalGradient: { flex: 1 },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 25,
+    paddingTop: 25,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.glassmorphism.glassBorder,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: Colors.glassmorphism.text,
+    letterSpacing: 0.5,
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.glassmorphism.glass,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
+  },
+  notificationsList: {
+    flex: 1,
+    paddingHorizontal: 25,
+    paddingVertical: 20,
+  },
+  notificationItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     marginBottom: 20,
-  },
-  addMedicationButton: {
-    backgroundColor: "#1a8e2d",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-  },
-  addMedicationButtonText: {
-    color: "white",
-    fontWeight: "600",
-  },
-  takenBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#E8F5E9",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: Colors.glassmorphism.glass,
     borderRadius: 12,
-    marginLeft: 10,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
   },
-  takenText: {
-    color: "#4CAF50",
-    fontWeight: "600",
+  notificationText: {
+    flex: 1,
     fontSize: 14,
-    marginLeft: 4,
+    color: Colors.glassmorphism.text,
+    marginLeft: 12,
+    lineHeight: 20,
+  },
+
+  // Progress Spinner
+  progressContainer: {
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+  progressHeader: {
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  progressTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: Colors.glassmorphism.text,
+    marginBottom: 5,
+  },
+  progressSubtitle: {
+    fontSize: 14,
+    color: Colors.glassmorphism.textSecondary,
+  },
+  progressCircle: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    borderWidth: 10,
+    borderColor: Colors.glassmorphism.glassBorder,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  progressRing: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 70,
+    borderWidth: 10,
+    borderColor: Colors.glassmorphism.glassBorder,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+  },
+  progressFill: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 70,
+    borderWidth: 10,
+    borderColor: Colors.glassmorphism.primary,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+  },
+  progressCenter: {
+    position: 'absolute',
+    alignItems: 'center',
+  },
+  progressPercentage: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: Colors.glassmorphism.text,
+    marginBottom: 5,
+  },
+  progressRemaining: {
+    fontSize: 14,
+    color: Colors.glassmorphism.textSecondary,
   },
 });

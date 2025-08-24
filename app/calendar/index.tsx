@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   ScrollView,
   Platform,
+  Animated,
+  Dimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,14 +20,22 @@ import {
   DoseHistory,
 } from "../../utils/storage";
 import { useFocusEffect } from "@react-navigation/native";
+import Colors from "../../constants/Colors";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const { width } = Dimensions.get("window");
 
 export default function CalendarScreen() {
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [medications, setMedications] = useState<Medication[]>([]);
   const [doseHistory, setDoseHistory] = useState<DoseHistory[]>([]);
+  
+  // Animation refs
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const scaleAnim = useRef(new Animated.Value(0.9)).current;
+  const calendarAnim = useRef(new Animated.Value(0)).current;
 
   const loadData = useCallback(async () => {
     try {
@@ -39,6 +49,33 @@ export default function CalendarScreen() {
       console.error("Error loading calendar data:", error);
     }
   }, [selectedDate]);
+
+  useEffect(() => {
+    // Start entrance animations
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 50,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+      Animated.timing(calendarAnim, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -124,7 +161,7 @@ export default function CalendarScreen() {
           <View
             style={[
               styles.medicationColor,
-              { backgroundColor: medication.color },
+              { backgroundColor: Colors.glassmorphism.primary },
             ]}
           />
           <View style={styles.medicationInfo}>
@@ -134,14 +171,14 @@ export default function CalendarScreen() {
           </View>
           {taken ? (
             <View style={styles.takenBadge}>
-              <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
+              <Ionicons name="checkmark-circle" size={20} color={Colors.glassmorphism.primary} />
               <Text style={styles.takenText}>Taken</Text>
             </View>
           ) : (
             <TouchableOpacity
               style={[
                 styles.takeDoseButton,
-                { backgroundColor: medication.color },
+                { backgroundColor: Colors.glassmorphism.primary },
               ]}
               onPress={async () => {
                 await recordDose(medication.id, true, new Date().toISOString());
@@ -159,24 +196,41 @@ export default function CalendarScreen() {
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={["#1a8e2d", "#146922"]}
+        colors={[Colors.glassmorphism.background, Colors.glassmorphism.surface]}
         style={styles.headerGradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
       />
 
-      <View style={styles.content}>
+      <Animated.View 
+        style={[
+          styles.content,
+          {
+            opacity: fadeAnim,
+            transform: [
+              { translateY: slideAnim },
+              { scale: scaleAnim }
+            ]
+          }
+        ]}
+      >
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
             style={styles.backButton}
           >
-            <Ionicons name="chevron-back" size={28} color="#1a8e2d" />
+            <Ionicons name="chevron-back" size={28} color={Colors.glassmorphism.primary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Calendar</Text>
         </View>
 
-        <View style={styles.calendarContainer}>
+        <Animated.View 
+          style={[
+            styles.calendarContainer,
+            {
+              opacity: calendarAnim,
+              transform: [{ scale: calendarAnim }]
+            }
+          ]}
+        >
           <View style={styles.monthHeader}>
             <TouchableOpacity
               onPress={() =>
@@ -188,8 +242,9 @@ export default function CalendarScreen() {
                   )
                 )
               }
+              style={styles.navButton}
             >
-              <Ionicons name="chevron-back" size={24} color="#333" />
+              <Ionicons name="chevron-back" size={24} color={Colors.glassmorphism.text} />
             </TouchableOpacity>
             <Text style={styles.monthText}>
               {selectedDate.toLocaleString("default", {
@@ -207,8 +262,9 @@ export default function CalendarScreen() {
                   )
                 )
               }
+              style={styles.navButton}
             >
-              <Ionicons name="chevron-forward" size={24} color="#333" />
+              <Ionicons name="chevron-forward" size={24} color={Colors.glassmorphism.text} />
             </TouchableOpacity>
           </View>
 
@@ -221,7 +277,7 @@ export default function CalendarScreen() {
           </View>
 
           {renderCalendar()}
-        </View>
+        </Animated.View>
 
         <View style={styles.scheduleContainer}>
           <Text style={styles.scheduleTitle}>
@@ -235,7 +291,7 @@ export default function CalendarScreen() {
             {renderMedicationsForDate()}
           </ScrollView>
         </View>
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -243,7 +299,7 @@ export default function CalendarScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: Colors.glassmorphism.background,
   },
   headerGradient: {
     position: "absolute",
@@ -264,121 +320,142 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "white",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.glassmorphism.glass,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   headerTitle: {
     fontSize: 28,
-    fontWeight: "700",
-    color: "white",
+    fontWeight: "600",
+    color: Colors.glassmorphism.primary,
     marginLeft: 15,
+    letterSpacing: 0.5,
   },
   calendarContainer: {
-    backgroundColor: "white",
-    borderRadius: 16,
+    backgroundColor: Colors.glassmorphism.card,
+    borderRadius: 20,
     margin: 20,
-    padding: 15,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.cardBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 15 },
+    shadowOpacity: 0.4,
+    shadowRadius: 25,
+    elevation: 20,
   },
   monthHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 15,
+    marginBottom: 20,
   },
   monthText: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "600",
-    color: "#333",
+    color: Colors.glassmorphism.text,
+    letterSpacing: 0.5,
+  },
+  navButton: {
+    padding: 10,
+    backgroundColor: Colors.glassmorphism.glass,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
   },
   weekdayHeader: {
     flexDirection: "row",
-    marginBottom: 10,
+    marginBottom: 15,
   },
   weekdayText: {
     flex: 1,
     textAlign: "center",
-    color: "#666",
+    color: Colors.glassmorphism.textSecondary,
     fontWeight: "500",
+    fontSize: 14,
   },
   calendarWeek: {
     flexDirection: "row",
-    marginBottom: 5,
+    marginBottom: 8,
   },
   calendarDay: {
     flex: 1,
     aspectRatio: 1,
     justifyContent: "center",
     alignItems: "center",
-    borderRadius: 8,
+    borderRadius: 12,
+    margin: 2,
   },
   dayText: {
     fontSize: 16,
-    color: "#333",
+    color: Colors.glassmorphism.text,
+    fontWeight: "500",
   },
   today: {
-    backgroundColor: "#1a8e2d15",
+    backgroundColor: Colors.glassmorphism.primary + '20',
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.primary + '40',
   },
   todayText: {
-    color: "#1a8e2d",
+    color: Colors.glassmorphism.primary,
     fontWeight: "600",
   },
   hasEvents: {
     position: "relative",
   },
   eventDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#1a8e2d",
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.glassmorphism.primary,
     position: "absolute",
     bottom: "15%",
   },
   scheduleContainer: {
     flex: 1,
-    backgroundColor: "white",
+    backgroundColor: Colors.glassmorphism.surface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.cardBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 15,
   },
   scheduleTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#333",
-    marginBottom: 15,
+    fontSize: 22,
+    fontWeight: "600",
+    color: Colors.glassmorphism.text,
+    marginBottom: 20,
+    letterSpacing: 0.5,
   },
   medicationCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "white",
-    borderRadius: 16,
-    padding: 15,
+    backgroundColor: Colors.glassmorphism.card,
+    borderRadius: 20,
+    padding: 18,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: Colors.glassmorphism.cardBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   medicationColor: {
     width: 12,
@@ -390,42 +467,59 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   medicationName: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "600",
-    color: "#333",
+    color: Colors.glassmorphism.text,
     marginBottom: 4,
+    letterSpacing: 0.5,
   },
   medicationDosage: {
-    fontSize: 14,
-    color: "#666",
+    fontSize: 15,
+    color: Colors.glassmorphism.textSecondary,
     marginBottom: 2,
   },
   medicationTime: {
-    fontSize: 14,
-    color: "#666",
+    fontSize: 15,
+    color: Colors.glassmorphism.textSecondary,
   },
   takeDoseButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 15,
-    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   takeDoseText: {
-    color: "white",
+    color: Colors.glassmorphism.background,
     fontWeight: "600",
     fontSize: 14,
+    letterSpacing: 0.5,
   },
   takenBadge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#E8F5E9",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    backgroundColor: Colors.glassmorphism.glass,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
   },
   takenText: {
-    color: "#4CAF50",
+    color: Colors.glassmorphism.primary,
     fontWeight: "600",
     fontSize: 14,
-    marginLeft: 4,
+    marginLeft: 6,
+    letterSpacing: 0.5,
+  },
+  navButton: {
+    padding: 10,
+    backgroundColor: Colors.glassmorphism.glass,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
   },
 });

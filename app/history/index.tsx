@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   ScrollView,
   Platform,
   Alert,
+  Animated,
+  Dimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,6 +21,7 @@ import {
   Medication,
   clearAllData,
 } from "../../utils/storage";
+import Colors from "../../constants/Colors";
 
 type EnrichedDoseHistory = DoseHistory & { medication?: Medication };
 
@@ -28,6 +31,12 @@ export default function HistoryScreen() {
   const [selectedFilter, setSelectedFilter] = useState<
     "all" | "taken" | "missed"
   >("all");
+  
+  // Animation refs
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const scaleAnim = useRef(new Animated.Value(0.9)).current;
+  const filtersAnim = useRef(new Animated.Value(0)).current;
 
   const loadHistory = useCallback(async () => {
     try {
@@ -46,6 +55,33 @@ export default function HistoryScreen() {
     } catch (error) {
       console.error("Error loading history:", error);
     }
+  }, []);
+
+  useEffect(() => {
+    // Start entrance animations
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 50,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+      Animated.timing(filtersAnim, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+      }),
+    ]).start();
   }, []);
 
   useFocusEffect(
@@ -108,24 +144,44 @@ export default function HistoryScreen() {
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={["#1a8e2d", "#146922"]}
+        colors={[Colors.glassmorphism.background, Colors.glassmorphism.surface]}
         style={styles.headerGradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
       />
 
-      <View style={styles.content}>
+      <Animated.View 
+        style={[
+          styles.content,
+          {
+            opacity: fadeAnim,
+            transform: [
+              { translateY: slideAnim },
+              { scale: scaleAnim }
+            ]
+          }
+        ]}
+      >
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
             style={styles.backButton}
           >
-            <Ionicons name="chevron-back" size={28} color="#1a8e2d" />
+            <Ionicons name="chevron-back" size={28} color={Colors.glassmorphism.primary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>History Log</Text>
         </View>
 
-        <View style={styles.filtersContainer}>
+        <Animated.View 
+          style={[
+            styles.filtersContainer,
+            {
+              opacity: filtersAnim,
+              transform: [{ translateY: filtersAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [20, 0]
+              }) }]
+            }
+          ]}
+        >
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -180,14 +236,23 @@ export default function HistoryScreen() {
               </Text>
             </TouchableOpacity>
           </ScrollView>
-        </View>
+        </Animated.View>
 
         <ScrollView
           style={styles.historyContainer}
           showsVerticalScrollIndicator={false}
         >
-          {groupedHistory.map(([date, doses]) => (
-            <View key={date} style={styles.dateGroup}>
+          {groupedHistory.map(([date, doses], groupIndex) => (
+            <Animated.View 
+              key={date} 
+              style={[
+                styles.dateGroup,
+                {
+                  opacity: fadeAnim,
+                  transform: [{ translateY: slideAnim }]
+                }
+              ]}
+            >
               <Text style={styles.dateHeader}>
                 {new Date(date).toLocaleDateString("default", {
                   weekday: "long",
@@ -195,12 +260,21 @@ export default function HistoryScreen() {
                   day: "numeric",
                 })}
               </Text>
-              {doses.map((dose) => (
-                <View key={dose.id} style={styles.historyCard}>
+              {doses.map((dose, doseIndex) => (
+                <Animated.View 
+                  key={dose.id} 
+                  style={[
+                    styles.historyCard,
+                    {
+                      opacity: fadeAnim,
+                      transform: [{ translateY: slideAnim }]
+                    }
+                  ]}
+                >
                   <View
                     style={[
                       styles.medicationColor,
-                      { backgroundColor: dose.medication?.color || "#ccc" },
+                      { backgroundColor: Colors.glassmorphism.primary },
                     ]}
                   />
                   <View style={styles.medicationInfo}>
@@ -222,15 +296,15 @@ export default function HistoryScreen() {
                       <View
                         style={[
                           styles.statusBadge,
-                          { backgroundColor: "#E8F5E9" },
+                          { backgroundColor: Colors.glassmorphism.primary + '20' },
                         ]}
                       >
                         <Ionicons
                           name="checkmark-circle"
                           size={16}
-                          color="#4CAF50"
+                          color={Colors.glassmorphism.primary}
                         />
-                        <Text style={[styles.statusText, { color: "#4CAF50" }]}>
+                        <Text style={[styles.statusText, { color: Colors.glassmorphism.primary }]}>
                           Taken
                         </Text>
                       </View>
@@ -238,23 +312,23 @@ export default function HistoryScreen() {
                       <View
                         style={[
                           styles.statusBadge,
-                          { backgroundColor: "#FFEBEE" },
+                          { backgroundColor: Colors.glassmorphism.error + '20' },
                         ]}
                       >
                         <Ionicons
                           name="close-circle"
                           size={16}
-                          color="#F44336"
+                          color={Colors.glassmorphism.error}
                         />
-                        <Text style={[styles.statusText, { color: "#F44336" }]}>
+                        <Text style={[styles.statusText, { color: Colors.glassmorphism.error }]}>
                           Missed
                         </Text>
                       </View>
                     )}
                   </View>
-                </View>
+                </Animated.View>
               ))}
-            </View>
+            </Animated.View>
           ))}
 
           <View style={styles.clearDataContainer}>
@@ -262,12 +336,12 @@ export default function HistoryScreen() {
               style={styles.clearDataButton}
               onPress={handleClearAllData}
             >
-              <Ionicons name="trash-outline" size={20} color="#FF5252" />
+              <Ionicons name="trash-outline" size={20} color={Colors.glassmorphism.error} />
               <Text style={styles.clearDataText}>Clear All Data</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -275,7 +349,7 @@ export default function HistoryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: Colors.glassmorphism.background,
   },
   headerGradient: {
     position: "absolute",
@@ -296,82 +370,94 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "white",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.glassmorphism.glass,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   headerTitle: {
     fontSize: 28,
-    fontWeight: "700",
-    color: "white",
+    fontWeight: "600",
+    color: Colors.glassmorphism.primary,
     marginLeft: 15,
+    letterSpacing: 0.5,
   },
   filtersContainer: {
     paddingHorizontal: 20,
     marginBottom: 20,
-    backgroundColor: "#f8f9fa",
-    paddingTop: 10,
+    backgroundColor: Colors.glassmorphism.surface,
+    paddingTop: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.glassmorphism.divider,
   },
   filtersScroll: {
     paddingRight: 20,
   },
   filterButton: {
     paddingHorizontal: 20,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: "white",
-    marginRight: 10,
+    backgroundColor: Colors.glassmorphism.glass,
+    marginRight: 12,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
+    borderColor: Colors.glassmorphism.glassBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   filterButtonActive: {
-    backgroundColor: "#1a8e2d",
-    borderColor: "#1a8e2d",
+    backgroundColor: Colors.glassmorphism.primary,
+    borderColor: Colors.glassmorphism.primary,
   },
   filterText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#666",
+    color: Colors.glassmorphism.textSecondary,
+    letterSpacing: 0.5,
   },
   filterTextActive: {
-    color: "white",
+    color: Colors.glassmorphism.background,
   },
   historyContainer: {
     flex: 1,
     paddingHorizontal: 20,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: Colors.glassmorphism.background,
   },
   dateGroup: {
     marginBottom: 25,
   },
   dateHeader: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "600",
-    color: "#666",
-    marginBottom: 12,
+    color: Colors.glassmorphism.textSecondary,
+    marginBottom: 15,
+    letterSpacing: 0.5,
   },
   historyCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "white",
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: Colors.glassmorphism.card,
+    borderRadius: 20,
+    padding: 18,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: Colors.glassmorphism.cardBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   medicationColor: {
     width: 12,
@@ -383,19 +469,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   medicationName: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "600",
-    color: "#333",
+    color: Colors.glassmorphism.text,
     marginBottom: 4,
+    letterSpacing: 0.5,
   },
   medicationDosage: {
-    fontSize: 14,
-    color: "#666",
+    fontSize: 15,
+    color: Colors.glassmorphism.textSecondary,
     marginBottom: 2,
   },
   timeText: {
-    fontSize: 14,
-    color: "#666",
+    fontSize: 15,
+    color: Colors.glassmorphism.textSecondary,
   },
   statusContainer: {
     alignItems: "flex-end",
@@ -403,14 +490,17 @@ const styles = StyleSheet.create({
   statusBadge: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
   },
   statusText: {
-    marginLeft: 4,
+    marginLeft: 6,
     fontSize: 14,
     fontWeight: "600",
+    letterSpacing: 0.5,
   },
   clearDataContainer: {
     padding: 20,
@@ -421,17 +511,23 @@ const styles = StyleSheet.create({
   clearDataButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFEBEE",
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 12,
+    backgroundColor: Colors.glassmorphism.error + '15',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#FFCDD2",
+    borderColor: Colors.glassmorphism.error + '30',
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   clearDataText: {
-    color: "#FF5252",
+    color: Colors.glassmorphism.error,
     fontSize: 16,
     fontWeight: "600",
     marginLeft: 8,
+    letterSpacing: 0.5,
   },
 });

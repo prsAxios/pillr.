@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   ScrollView,
   Platform,
   Alert,
+  Animated,
+  Dimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,10 +20,18 @@ import {
   updateMedication,
 } from "../../utils/storage";
 import { scheduleRefillReminder } from "../../utils/notifications";
+import Colors from "../../constants/Colors";
+
+const { width } = Dimensions.get("window");
 
 export default function RefillTrackerScreen() {
   const router = useRouter();
   const [medications, setMedications] = useState<Medication[]>([]);
+  
+  // Animation refs
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const scaleAnim = useRef(new Animated.Value(0.9)).current;
 
   const loadMedications = useCallback(async () => {
     try {
@@ -30,6 +40,28 @@ export default function RefillTrackerScreen() {
     } catch (error) {
       console.error("Error loading medications:", error);
     }
+  }, []);
+
+  useEffect(() => {
+    // Start entrance animations
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 50,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+    ]).start();
   }, []);
 
   useFocusEffect(
@@ -65,20 +97,20 @@ export default function RefillTrackerScreen() {
     if (percentage <= medication.refillAt) {
       return {
         status: "Low",
-        color: "#F44336",
-        backgroundColor: "#FFEBEE",
+        color: Colors.glassmorphism.error,
+        backgroundColor: Colors.glassmorphism.error + '20',
       };
     } else if (percentage <= 50) {
       return {
         status: "Medium",
-        color: "#FF9800",
-        backgroundColor: "#FFF3E0",
+        color: Colors.glassmorphism.warning,
+        backgroundColor: Colors.glassmorphism.warning + '20',
       };
     } else {
       return {
         status: "Good",
-        color: "#4CAF50",
-        backgroundColor: "#E8F5E9",
+        color: Colors.glassmorphism.primary,
+        backgroundColor: Colors.glassmorphism.primary + '20',
       };
     }
   };
@@ -86,19 +118,28 @@ export default function RefillTrackerScreen() {
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={["#1a8e2d", "#146922"]}
+        colors={[Colors.glassmorphism.background, Colors.glassmorphism.surface]}
         style={styles.headerGradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
       />
 
-      <View style={styles.content}>
+      <Animated.View 
+        style={[
+          styles.content,
+          {
+            opacity: fadeAnim,
+            transform: [
+              { translateY: slideAnim },
+              { scale: scaleAnim }
+            ]
+          }
+        ]}
+      >
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
             style={styles.backButton}
           >
-            <Ionicons name="chevron-back" size={28} color="#1a8e2d" />
+            <Ionicons name="chevron-back" size={28} color={Colors.glassmorphism.primary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Refill Tracker</Text>
         </View>
@@ -109,7 +150,7 @@ export default function RefillTrackerScreen() {
         >
           {medications.length === 0 ? (
             <View style={styles.emptyState}>
-              <Ionicons name="medical-outline" size={48} color="#ccc" />
+              <Ionicons name="medical-outline" size={48} color={Colors.glassmorphism.textTertiary} />
               <Text style={styles.emptyStateText}>No medications to track</Text>
               <TouchableOpacity
                 style={styles.addButton}
@@ -119,18 +160,30 @@ export default function RefillTrackerScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            medications.map((medication) => {
+            medications.map((medication, index) => {
               const supplyStatus = getSupplyStatus(medication);
               const supplyPercentage =
                 (medication.currentSupply / medication.totalSupply) * 100;
 
               return (
-                <View key={medication.id} style={styles.medicationCard}>
+                <Animated.View 
+                  key={medication.id} 
+                  style={[
+                    styles.medicationCard,
+                    {
+                      opacity: fadeAnim,
+                      transform: [
+                        { translateY: slideAnim },
+                        { scale: scaleAnim }
+                      ]
+                    }
+                  ]}
+                >
                   <View style={styles.medicationHeader}>
                     <View
                       style={[
                         styles.medicationColor,
-                        { backgroundColor: medication.color },
+                        { backgroundColor: Colors.glassmorphism.primary },
                       ]}
                     />
                     <View style={styles.medicationInfo}>
@@ -167,7 +220,7 @@ export default function RefillTrackerScreen() {
                     </View>
                     <View style={styles.progressBarContainer}>
                       <View style={styles.progressBarBackground}>
-                        <View
+                        <Animated.View
                           style={[
                             styles.progressBar,
                             {
@@ -201,7 +254,7 @@ export default function RefillTrackerScreen() {
                       styles.refillButton,
                       {
                         backgroundColor:
-                          supplyPercentage < 100 ? medication.color : "#e0e0e0",
+                          supplyPercentage < 100 ? Colors.glassmorphism.primary : Colors.glassmorphism.glass,
                       },
                     ]}
                     onPress={() => handleRefill(medication)}
@@ -209,12 +262,12 @@ export default function RefillTrackerScreen() {
                   >
                     <Text style={styles.refillButtonText}>Record Refill</Text>
                   </TouchableOpacity>
-                </View>
+                </Animated.View>
               );
             })
           )}
         </ScrollView>
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -222,7 +275,7 @@ export default function RefillTrackerScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: Colors.glassmorphism.background,
   },
   headerGradient: {
     position: "absolute",
@@ -243,45 +296,48 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "white",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.glassmorphism.glass,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   headerTitle: {
     fontSize: 28,
-    fontWeight: "700",
-    color: "white",
+    fontWeight: "600",
+    color: Colors.glassmorphism.primary,
     marginLeft: 15,
+    letterSpacing: 0.5,
   },
   medicationsContainer: {
     flex: 1,
     paddingHorizontal: 20,
   },
   medicationCard: {
-    backgroundColor: "white",
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: Colors.glassmorphism.card,
+    borderRadius: 20,
+    padding: 20,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: "#e0e0e0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: Colors.glassmorphism.cardBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 15 },
+    shadowOpacity: 0.4,
+    shadowRadius: 25,
+    elevation: 20,
   },
   medicationHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 20,
   },
   medicationColor: {
     width: 12,
@@ -293,104 +349,132 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   medicationName: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "600",
-    color: "#333",
+    color: Colors.glassmorphism.text,
     marginBottom: 4,
+    letterSpacing: 0.5,
   },
   medicationDosage: {
-    fontSize: 14,
-    color: "#666",
+    fontSize: 15,
+    color: Colors.glassmorphism.textSecondary,
   },
   statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
   },
   statusText: {
     fontSize: 14,
     fontWeight: "600",
+    letterSpacing: 0.5,
   },
   supplyContainer: {
-    marginBottom: 16,
+    marginBottom: 20,
   },
   supplyInfo: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: 12,
   },
   supplyLabel: {
-    fontSize: 14,
-    color: "#666",
+    fontSize: 15,
+    color: Colors.glassmorphism.textSecondary,
+    fontWeight: "500",
   },
   supplyValue: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "600",
-    color: "#333",
+    color: Colors.glassmorphism.text,
   },
   progressBarContainer: {
-    marginBottom: 8,
+    marginBottom: 12,
   },
   progressBarBackground: {
-    height: 8,
-    backgroundColor: "#f5f5f5",
-    borderRadius: 4,
+    height: 10,
+    backgroundColor: Colors.glassmorphism.glass,
+    borderRadius: 5,
     overflow: "hidden",
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
   },
   progressBar: {
     height: "100%",
-    borderRadius: 4,
+    borderRadius: 5,
   },
   progressText: {
-    fontSize: 12,
-    color: "#666",
-    marginTop: 4,
+    fontSize: 13,
+    color: Colors.glassmorphism.textSecondary,
+    marginTop: 6,
     textAlign: "right",
+    fontWeight: "500",
   },
   refillInfo: {
-    marginTop: 8,
+    marginTop: 12,
   },
   refillLabel: {
-    fontSize: 12,
-    color: "#666",
+    fontSize: 13,
+    color: Colors.glassmorphism.textSecondary,
+    fontWeight: "500",
   },
   lastRefillDate: {
-    fontSize: 12,
-    color: "#666",
-    marginTop: 2,
+    fontSize: 13,
+    color: Colors.glassmorphism.textTertiary,
+    marginTop: 4,
   },
   refillButton: {
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: 14,
+    borderRadius: 16,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.glassBorder,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   refillButtonText: {
-    color: "white",
+    color: Colors.glassmorphism.background,
     fontSize: 16,
     fontWeight: "600",
+    letterSpacing: 0.5,
   },
   emptyState: {
     alignItems: "center",
-    padding: 30,
-    backgroundColor: "white",
-    borderRadius: 16,
+    padding: 40,
+    backgroundColor: Colors.glassmorphism.card,
+    borderRadius: 20,
     marginTop: 20,
+    borderWidth: 1,
+    borderColor: Colors.glassmorphism.cardBorder,
   },
   emptyStateText: {
     fontSize: 16,
-    color: "#666",
-    marginTop: 10,
-    marginBottom: 20,
+    color: Colors.glassmorphism.textSecondary,
+    marginTop: 12,
+    marginBottom: 24,
+    textAlign: 'center',
+    lineHeight: 24,
   },
   addButton: {
-    backgroundColor: "#1a8e2d",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    backgroundColor: Colors.glassmorphism.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
     borderRadius: 20,
+    shadowColor: Colors.glassmorphism.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   addButtonText: {
-    color: "white",
+    color: Colors.glassmorphism.background,
     fontWeight: "600",
+    fontSize: 15,
+    letterSpacing: 0.5,
   },
 });

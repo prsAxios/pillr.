@@ -1,6 +1,8 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { Platform } from "react-native";
+import Colors from "../constants/Colors";
+import "../utils/i18n"; // Initialize i18n
 
 export default function Layout() {
   return (
@@ -9,50 +11,20 @@ export default function Layout() {
       <Stack
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: "white" },
+          contentStyle: { backgroundColor: Colors.glassmorphism.background },
           animation: "slide_from_right",
           header: () => null,
           navigationBarHidden: true,
         }}
       >
-        <Stack.Screen
-          name="index"
-          options={{
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen
-          name="medications/add"
-          options={{
-            headerShown: false,
-            headerBackTitle: "",
-            title: "",
-          }}
-        />
-        <Stack.Screen
-          name="refills/index"
-          options={{
-            headerShown: false,
-            headerBackTitle: "",
-            title: "",
-          }}
-        />
-        <Stack.Screen
-          name="calendar/index"
-          options={{
-            headerShown: false,
-            headerBackTitle: "",
-            title: "",
-          }}
-        />
-        <Stack.Screen
-          name="history/index"
-          options={{
-            headerShown: false,
-            headerBackTitle: "",
-            title: "",
-          }}
-        />
+        <Stack.Screen name="index" />
+        <Stack.Screen name="auth" />
+        <Stack.Screen name="home" />
+        <Stack.Screen name="medications/add" />
+        <Stack.Screen name="medications/scan" />
+        <Stack.Screen name="calendar" />
+        <Stack.Screen name="refills" />
+        <Stack.Screen name="history" />
       </Stack>
     </>
   );
